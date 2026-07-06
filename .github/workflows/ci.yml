@@ -1,0 +1,198 @@
+name: CI/CD Pipeline — Industrial Safety AI
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main]
+
+env:
+  PYTHON_VERSION: "3.11"
+
+jobs:
+  lint-and-security:
+    name: Lint & Security Audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Cache pip
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: pip-${{ hashFiles('backend/requirements.txt') }}
+
+      - name: Install Python dependencies
+        run: pip install -r backend/requirements.txt bandit pip-audit flake8
+
+      - name: Flake8 linting
+        run: flake8 backend/ rule_engine/ simulator/ --max-line-length=120 --exclude=__pycache__,*.pyc
+
+      - name: Bandit security scan
+        run: |
+          bandit -r backend/ rule_engine/ -ll -f json -o bandit_report.json || true
+          bandit -r backend/ rule_engine/ -ll --exit-zero
+          echo "✅ Bandit security scan complete"
+
+      - name: pip-audit dependency check
+        run: pip-audit --requirement backend/requirements.txt --skip-editable || true
+
+      - name: Node.js audit (frontend)
+        working-directory: frontend
+        run: |
+          npm install
+          npm audit --audit-level=high || true
+
+  unit-tests:
+    name: Unit Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install dependencies
+        run: pip install -r backend/requirements.txt pytest-cov
+
+      - name: Run unit tests with coverage
+        run: |
+          cd backend
+          python -m pytest tests/test_rules.py tests/test_auth.py tests/test_validation.py \
+            --cov=. \
+            --cov-report=xml \
+            --cov-report=term-missing \
+            --cov-fail-under=90 \
+            -v
+
+      - name: Upload coverage report
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-coverage
+          path: backend/coverage.xml
+
+  integration-tests:
+    name: Integration Tests
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: safety_user
+          POSTGRES_PASSWORD: safety_pass
+          POSTGRES_DB: safety_db
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U safety_user"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install dependencies
+        run: pip install -r backend/requirements.txt
+
+      - name: Run integration tests
+        env:
+          DATABASE_URL: postgresql+asyncpg://safety_user:safety_pass@localhost:5432/safety_db
+          REDIS_URL: redis://localhost:6379/0
+          JWT_SECRET: test-secret-key
+        run: |
+          cd backend
+          python -m pytest tests/test_api.py tests/test_db_persistence.py \
+            --timeout=60 \
+            -v
+
+  docker-build:
+    name: Docker Build Verification
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build backend image
+        run: docker build -f Dockerfile.backend -t safety-backend:test .
+
+      - name: Build frontend image
+        run: docker build -f frontend/Dockerfile -t safety-frontend:test frontend/
+
+      - name: docker compose config validation
+        run: docker compose config --quiet
+
+      - name: Scan backend image for vulnerabilities
+        run: |
+          docker run --rm aquasec/trivy:latest image \
+            --severity HIGH,CRITICAL \
+            --no-progress \
+            --exit-code 0 \
+            safety-backend:test || true
+
+  alembic-migrations:
+    name: Migration Verification
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: safety_user
+          POSTGRES_PASSWORD: safety_pass
+          POSTGRES_DB: safety_db
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U safety_user"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install dependencies
+        run: pip install -r backend/requirements.txt
+
+      - name: Run Alembic migrations
+        env:
+          DATABASE_URL: postgresql+asyncpg://safety_user:safety_pass@localhost:5432/safety_db
+        run: |
+          cd backend
+          alembic upgrade head
+          echo "✅ Alembic migrations applied successfully"
+
+      - name: Verify Alembic rollback
+        env:
+          DATABASE_URL: postgresql+asyncpg://safety_user:safety_pass@localhost:5432/safety_db
+        run: |
+          cd backend
+          alembic downgrade -1
+          alembic upgrade head
+          echo "✅ Alembic rollback and re-upgrade successful"
