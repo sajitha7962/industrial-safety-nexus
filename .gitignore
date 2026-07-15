@@ -28,3 +28,13 @@ node_modules/
 
 # AI Models saved state
 ai_models/saved/*.pkl
+
+# Large data files (600MB+ each — too big for GitHub)
+data/raw/ethylene_CO.txt
+data/raw/ethylene_methane.txt
+data/raw/data/
+
+# Backups
+backups/
+*.sql.gz
+backup.sql

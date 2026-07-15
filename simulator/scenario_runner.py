@@ -27,14 +27,20 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s [SCENARIO] %(message
 API_BASE = os.getenv("API_BASE", "http://127.0.0.1:8000")
 
 
+# Global Token
+JWT_TOKEN = None
+
 def post(path: str, payload: dict) -> dict:
     """Simple HTTP POST using only stdlib (no requests dep needed)."""
     url = f"{API_BASE}{path}"
     data = json.dumps(payload).encode("utf-8")
+    headers = {"Content-Type": "application/json"}
+    if JWT_TOKEN:
+        headers["Authorization"] = f"Bearer {JWT_TOKEN}"
     req = urllib.request.Request(
         url,
         data=data,
-        headers={"Content-Type": "application/json"},
+        headers=headers,
         method="POST",
     )
     try:
@@ -51,8 +57,12 @@ def post(path: str, payload: dict) -> dict:
 
 def get(path: str) -> dict:
     url = f"{API_BASE}{path}"
+    headers = {}
+    if JWT_TOKEN:
+        headers["Authorization"] = f"Bearer {JWT_TOKEN}"
+    req = urllib.request.Request(url, headers=headers)
     try:
-        with urllib.request.urlopen(url, timeout=5) as resp:
+        with urllib.request.urlopen(req, timeout=5) as resp:
             return json.loads(resp.read().decode())
     except Exception as e:
         logger.warning(f"GET {path} failed: {e}")
@@ -108,12 +118,23 @@ def log_shift(shift_type: str, supervisor: str, workers: int):
 
 
 def run_demo(speed: float = 1.0, step_delay: float = 8.0):
+    global JWT_TOKEN
     logger.info(f"🎭 Checking backend connectivity at {API_BASE} …")
     health = get("/health")
     if not health:
         logger.error(f"❌ Cannot reach backend at {API_BASE}. Make sure uvicorn is running first.")
         sys.exit(1)
     logger.info(f"✅ Backend healthy: {health}")
+
+    # Authenticate to get a token
+    logger.info("🔑 Authenticating as admin...")
+    login_resp = post("/api/auth/login", {"username": "admin", "password": "adminpass"})
+    if login_resp and "access_token" in login_resp:
+        JWT_TOKEN = login_resp["access_token"]
+        logger.info("🔓 Authentication successful.")
+    else:
+        logger.warning("⚠️ Authentication failed. Continuing without token.")
+
     logger.info(f"📋 Starting 9-step demo scenario at {speed}x speed\n")
 
     active_permit_id = None
@@ -152,8 +173,12 @@ def run_demo(speed: float = 1.0, step_delay: float = 8.0):
         if step == 9 and active_permit_id:
             cancel_url = f"/api/permits/{active_permit_id}"
             try:
+                headers = {}
+                if JWT_TOKEN:
+                    headers["Authorization"] = f"Bearer {JWT_TOKEN}"
                 req = urllib.request.Request(
                     f"{API_BASE}{cancel_url}?status=cancelled",
+                    headers=headers,
                     method="PATCH"
                 )
                 urllib.request.urlopen(req, timeout=5)

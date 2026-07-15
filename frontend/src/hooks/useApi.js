@@ -80,16 +80,31 @@ export function useApi(enablePolling = false) {
   }, [])
 
   const createPermit = useCallback(async (permitData) => {
-    const token = await getAuthToken()
+    let token = await getAuthToken()
     const headers = { 'Content-Type': 'application/json' }
     if (token) {
       headers['Authorization'] = `Bearer ${token}`
     }
-    const res = await fetch(`${API}/api/permits`, {
+    let res = await fetch(`${API}/api/permits`, {
       method: 'POST',
       headers,
       body: JSON.stringify(permitData)
     })
+    if (res.status === 401) {
+      localStorage.removeItem('token')
+      const newToken = await getAuthToken()
+      if (newToken) {
+        const retryHeaders = {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${newToken}`
+        }
+        res = await fetch(`${API}/api/permits`, {
+          method: 'POST',
+          headers: retryHeaders,
+          body: JSON.stringify(permitData)
+        })
+      }
+    }
     if (!res.ok) {
       const errData = await res.json().catch(() => ({}))
       throw new Error(errData.detail || 'Failed to create permit')

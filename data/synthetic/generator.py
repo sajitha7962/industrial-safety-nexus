@@ -41,6 +41,13 @@ EQUIPMENT_CATALOG = [
     {"id": "VALVE-01",   "name": "Safety Valve SV-01", "type": "valve",   "zone": "Zone-D"},
 ]
 
+# ─── Kaggle Dataset Integration Paths ─────────────────────────
+import os
+RAW_DIR = os.path.join(os.path.dirname(__file__), "..", "raw")
+# Fallback inside container
+if not os.path.exists(RAW_DIR):
+    RAW_DIR = "/app/raw"
+
 
 def _add_noise(value: float, noise_pct: float = 0.05) -> float:
     return max(0.0, value * (1.0 + random.gauss(0, noise_pct)))
@@ -48,6 +55,70 @@ def _add_noise(value: float, noise_pct: float = 0.05) -> float:
 
 def generate_sensor_history(hours: int = 72, interval_minutes: int = 5) -> pd.DataFrame:
     """Generate sensor time-series for anomaly model training."""
+    # NOTE: ethylene_methane.txt and ethylene_CO.txt are 600MB+ each.
+    # Reading them causes OOM/hang in Docker containers.
+    # Use synthetic data generation instead (fast and reliable).
+    if False:  # Disabled — large file reads cause container hangs
+        try:
+            # Load real Kaggle gas datasets
+            df_methane = pd.read_csv(methane_file, sep=r'\s+', nrows=2000)
+            df_co = pd.read_csv(co_file, sep=r'\s+', nrows=2000)
+
+            records = []
+            now = datetime.utcnow()
+            start = now - timedelta(hours=hours)
+            ts = start
+
+            i = 0
+            while ts <= now and i < min(len(df_methane), len(df_co)):
+                row_methane = df_methane.iloc[i]
+                row_co = df_co.iloc[i]
+
+                ch4_val = float(row_methane.iloc[1]) # Methane conc
+                co_val = float(row_co.iloc[2])      # Ethylene mapped to CO
+                h2s_val = float(row_methane.iloc[2]) * 0.1 # Ethylene mapped to H2S
+
+                for zone in ZONES:
+                    zone_offset = sum(ord(c) for c in zone) % 5
+
+                    records.append({
+                        "timestamp": ts,
+                        "zone": zone,
+                        "sensor_type": "gas_ch4",
+                        "value": round(max(0.1, ch4_val + zone_offset), 2),
+                        "unit": "ppm",
+                    })
+                    records.append({
+                        "timestamp": ts,
+                        "zone": zone,
+                        "sensor_type": "gas_co",
+                        "value": round(max(0.1, co_val + zone_offset), 2),
+                        "unit": "ppm",
+                    })
+                    records.append({
+                        "timestamp": ts,
+                        "zone": zone,
+                        "sensor_type": "gas_h2s",
+                        "value": round(max(0.01, h2s_val + zone_offset * 0.1), 2),
+                        "unit": "ppm",
+                    })
+                    records.append({
+                        "timestamp": ts,
+                        "zone": zone,
+                        "sensor_type": "temp",
+                        "value": round(25.0 + zone_offset + random.uniform(-1, 1), 1),
+                        "unit": "°C",
+                    })
+
+                ts += timedelta(minutes=interval_minutes)
+                i += 1
+
+            if records:
+                return pd.DataFrame(records)
+        except Exception as e:
+            print(f"Failed to load Kaggle sensor data: {e}")
+
+    # Fallback to synthetic
     records = []
     now = datetime.utcnow()
     start = now - timedelta(hours=hours)
@@ -84,6 +155,46 @@ def generate_sensor_history(hours: int = 72, interval_minutes: int = 5) -> pd.Da
 
 def generate_equipment_history(hours: int = 72) -> pd.DataFrame:
     """Generate equipment telemetry history."""
+    eq_file = os.path.join(RAW_DIR, "ai4i2020.csv")
+
+    if os.path.exists(eq_file):
+        try:
+            df_eq = pd.read_csv(eq_file)
+            records = []
+            now = datetime.utcnow()
+            start = now - timedelta(hours=hours)
+            ts = start
+
+            i = 0
+            while ts <= now and i < len(df_eq):
+                row = df_eq.iloc[i]
+                air_temp_c = float(row["Air temperature [K]"]) - 273.15
+                rpm = float(row["Rotational speed [rpm]"])
+                vibration = float(row["Torque [Nm]"]) * 0.02
+                failure = int(row["Machine failure"])
+                status = "fault" if failure == 1 else "online"
+
+                for eq in EQUIPMENT_CATALOG:
+                    records.append({
+                        "timestamp":    ts,
+                        "equipment_id": eq["id"],
+                        "name":         eq["name"],
+                        "type":         eq["type"],
+                        "zone":         eq["zone"],
+                        "status":       status,
+                        "temperature":  round(air_temp_c + (sum(ord(c) for c in eq["id"]) % 5), 1),
+                        "vibration":    round(vibration, 3),
+                        "rpm":          round(rpm, 0),
+                    })
+                ts += timedelta(minutes=10)
+                i += 1
+
+            if records:
+                return pd.DataFrame(records)
+        except Exception as e:
+            print(f"Failed to load Kaggle equipment data: {e}")
+
+    # Fallback to synthetic
     records = []
     now = datetime.utcnow()
     start = now - timedelta(hours=hours)
@@ -108,7 +219,23 @@ def generate_equipment_history(hours: int = 72) -> pd.DataFrame:
 
 
 def generate_current_sensor_reading(zone: str, scenario: str = "normal") -> Dict[str, Any]:
-    """Generate a single sensor reading snapshot for a zone."""
+    """Generate a single sensor reading snapshot for a zone.
+    Uses ai4i2020.csv for temperature data if available, otherwise synthetic.
+    NOTE: The large ethylene txt files (600MB+) are NOT used here to avoid OOM.
+    """
+    # Try to use ai4i2020.csv for more realistic temperature patterns
+    eq_file = os.path.join(RAW_DIR, "ai4i2020.csv")
+    csv_temp = None
+    if os.path.exists(eq_file):
+        try:
+            import pandas as pd
+            # Read only first 100 rows (lightweight)
+            df = pd.read_csv(eq_file, nrows=100)
+            row = df.sample(1).iloc[0]
+            csv_temp = float(row["Air temperature [K]"]) - 273.15
+        except Exception:
+            pass
+
     baselines = ZONE_BASELINE.get(zone, ZONE_BASELINE["Zone-A"])
     multiplier = {
         "normal":   1.0,
@@ -116,12 +243,19 @@ def generate_current_sensor_reading(zone: str, scenario: str = "normal") -> Dict
         "critical": 5.0,
     }.get(scenario, 1.0)
 
+    # Use CSV temperature if available, otherwise synthetic
+    if csv_temp is not None:
+        zone_offset = sum(ord(c) for c in zone) % 5
+        temp = round(csv_temp + zone_offset + random.uniform(-1, 1) + 5 * (multiplier - 1), 1)
+    else:
+        temp = round(_add_noise(baselines["temp"] * (1 + 0.3 * (multiplier - 1))), 1)
+
     return {
         "zone": zone,
         "gas_ch4":  round(_add_noise(baselines["ch4"]  * multiplier), 2),
         "gas_co":   round(_add_noise(baselines["co"]   * multiplier), 2),
         "gas_h2s":  round(_add_noise(baselines["h2s"]  * multiplier), 2),
-        "temp":     round(_add_noise(baselines["temp"] * (1 + 0.3 * (multiplier - 1))), 1),
+        "temp":     temp,
         "humidity": round(random.uniform(40, 75), 1),
     }
 

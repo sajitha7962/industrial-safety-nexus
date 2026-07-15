@@ -110,22 +110,35 @@ async def lifespan(app: FastAPI):
     # 2. Train / load anomaly model & seed database history if empty
     try:
         from ai_models.anomaly_detector import anomaly_detector
-        from data.synthetic.generator import generate_sensor_history
-        df = None
-        if not anomaly_detector.load():
-            logger.info("Training anomaly detector from synthetic data …")
-            df = generate_sensor_history(hours=72)
-            anomaly_detector.train(df)
-
         from database import AsyncSessionLocal
         from models.db_models import SensorReading
         from sqlalchemy import select, func
+
+        model_loaded = anomaly_detector.load()
+
+        # Only generate history data if model not loaded OR DB is empty
         async with AsyncSessionLocal() as session:
             cnt = await session.execute(select(func.count(SensorReading.id)))
-            if cnt.scalar() == 0:
+            db_empty = cnt.scalar() == 0
+
+        if not model_loaded or db_empty:
+            logger.info("Generating synthetic history (72h) — this may take up to 30s …")
+            try:
+                from data.synthetic.generator import generate_sensor_history
+                loop = asyncio.get_event_loop()
+                df = await asyncio.wait_for(
+                    loop.run_in_executor(None, lambda: generate_sensor_history(hours=72)),
+                    timeout=30.0
+                )
+            except asyncio.TimeoutError:
+                logger.warning("History generation timed out — skipping seeding, using saved model if available.")
+                df = None
+
+            if df is not None and not model_loaded:
+                anomaly_detector.train(df)
+
+            if df is not None and db_empty:
                 logger.info("Seeding historical sensors table with 72h data...")
-                if df is None:
-                    df = generate_sensor_history(hours=72)
                 db_readings = []
                 for _, row in df.iterrows():
                     db_readings.append(SensorReading(
@@ -138,11 +151,15 @@ async def lifespan(app: FastAPI):
                         timestamp=row['timestamp'],
                         raw_payload={}
                     ))
-                session.add_all(db_readings)
-                await session.commit()
+                async with AsyncSessionLocal() as session:
+                    session.add_all(db_readings)
+                    await session.commit()
                 logger.info(f"Seeding completed. Inserted {len(db_readings)} rows.")
+        else:
+            logger.info("✅ Anomaly model loaded from disk, DB already has history — skipping seeding.")
     except Exception as e:
         logger.warning(f"Anomaly model / history DB seeding failed (non-fatal): {e}")
+
 
     # 3. Seed initial state from synthetic data
     try:
