@@ -268,7 +268,7 @@ async def save_equipment_status_db(eq: dict) -> None:
         db_eq = EquipmentStatus(
             equipment_id=eq.get("equipment_id") or eq.get("id"),
             name=eq.get("name"),
-            equipment_type=eq.get("equipment_type"),
+            equipment_type=eq.get("equipment_type") or eq.get("type"),
             zone=eq.get("zone"),
             status=eq.get("status"),
             temperature=eq.get("temperature"),
