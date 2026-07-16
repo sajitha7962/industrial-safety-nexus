@@ -1,13 +1,14 @@
 import { NavLink } from 'react-router-dom'
 import { useSafety } from '../context/SafetyContext'
+import { LayoutDashboard, Bell, Camera, ClipboardList, LineChart, FileText } from 'lucide-react'
 
 const NAV = [
-  { to: '/',        icon: '📊', label: 'Dashboard' },
-  { to: '/alerts',  icon: '🚨', label: 'Alerts' },
-  { to: '/cctv',   icon: '📷', label: 'CCTV / PPE' },
-  { to: '/reports', icon: '📋', label: 'Reports' },
-  { to: '/history', icon: '📈', label: 'Trends' },
-  { to: '/permits', icon: '📝', label: 'Permits' },
+  { to: '/',        Icon: LayoutDashboard, label: 'Dashboard' },
+  { to: '/alerts',  Icon: Bell, label: 'Alerts' },
+  { to: '/cctv',   Icon: Camera, label: 'CCTV / PPE' },
+  { to: '/reports', Icon: ClipboardList, label: 'Reports' },
+  { to: '/history', Icon: LineChart, label: 'Trends' },
+  { to: '/permits', Icon: FileText, label: 'Permits' },
 ]
 
 export default function Sidebar() {
@@ -21,65 +22,80 @@ export default function Sidebar() {
 
   return (
     <nav className="sidebar">
-      {/* Risk Overview */}
-      <div style={{ padding: '0.75rem 1rem', margin: '0 0.75rem 0.5rem', borderRadius: 'var(--radius-sm)', background: 'var(--bg-card)' }}>
-        <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)', marginBottom: '0.4rem', textTransform: 'uppercase', letterSpacing: '0.08em' }}>
-          Global Risk
+      {/* Brand area */}
+      <div style={{ padding: 'var(--spacing-3)', display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+        <div style={{ background: 'var(--accent)', borderRadius: 'var(--radius-sm)', width: 32, height: 32, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontWeight: 800, fontSize: '1.2rem', boxShadow: '0 4px 10px rgba(124, 58, 237, 0.3)' }}>
+          S
         </div>
-        {/* Risk bar */}
-        <div style={{ height: 4, background: 'var(--bg-hover)', borderRadius: 2, overflow: 'hidden', marginBottom: '0.4rem' }}>
-          <div style={{
-            height: '100%',
-            width:  `${riskScore}%`,
-            background: `var(--${levelClass === 'safe' ? 'safe' : levelClass === 'warning' ? 'warn' : levelClass === 'high' ? 'high' : 'crit'})`,
-            borderRadius: 2,
-            transition: 'width 1s ease',
-          }} />
-        </div>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <span className={`badge badge-${levelClass}`} style={{ fontSize: '0.65rem', padding: '0.1rem 0.5rem' }}>{riskLevel}</span>
-          <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.9rem', fontWeight: 700, color: 'var(--text-primary)' }}>{riskScore}</span>
+        <div style={{ fontWeight: 800, fontSize: '1.1rem', letterSpacing: '-0.02em', color: 'var(--text-primary)' }}>
+          SafetyAI
         </div>
       </div>
 
       <div className="section-title">Navigation</div>
 
-      {NAV.map(({ to, icon, label }) => (
-        <NavLink
-          key={to}
-          to={to}
-          end={to === '/'}
-          className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}
-        >
-          <span style={{ fontSize: '1rem' }}>{icon}</span>
-          <span>{label}</span>
-          {label === 'Alerts' && activeAlerts.length > 0 && (
-            <span className="nav-badge" style={{ backgroundColor: 'var(--crit)' }}>{activeAlerts.length}</span>
-          )}
-          {label === 'Reports' && activeAlerts.length > 0 && (
-            <span className="nav-badge">{critAlerts.length || activeAlerts.length}</span>
-          )}
-        </NavLink>
-      ))}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.2rem' }}>
+        {NAV.map(({ to, Icon, label }) => (
+          <NavLink
+            key={to}
+            to={to}
+            end={to === '/'}
+            className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}
+          >
+            <div className="icon-wrapper">
+              <Icon size={18} strokeWidth={2.5} />
+            </div>
+            <span>{label}</span>
+            {label === 'Alerts' && activeAlerts.length > 0 && (
+              <span className="nav-badge" style={{ backgroundColor: 'var(--crit)' }}>{activeAlerts.length}</span>
+            )}
+            {label === 'Reports' && activeAlerts.length > 0 && (
+              <span className="nav-badge">{critAlerts.length || activeAlerts.length}</span>
+            )}
+          </NavLink>
+        ))}
+      </div>
 
-      <div className="divider" style={{ margin: '1rem 0.75rem' }} />
-      <div className="section-title">System Status</div>
-
-      {/* Zone list */}
-      {Object.entries(state.zoneBreakdown).map(([zone, info]) => (
-        <div key={zone} style={{
-          display: 'flex', alignItems: 'center', gap: '0.5rem',
-          padding: '0.3rem 1.25rem', fontSize: '0.75rem',
-        }}>
-          <span style={{ width: 8, height: 8, borderRadius: '50%', background: info.color, flexShrink: 0 }} />
-          <span style={{ color: 'var(--text-secondary)', flex: 1 }}>{zone}</span>
-          <span style={{ fontFamily: 'var(--font-mono)', color: info.color, fontWeight: 600 }}>{info.risk_score}</span>
+      <div style={{ borderTop: '1px solid var(--border)', margin: 'var(--spacing-2)', padding: 'var(--spacing-2) 0 0' }} />
+      <div className="section-title">Global Risk Status</div>
+      
+      {/* Risk Overview */}
+      <div style={{ padding: '0 var(--spacing-2)', marginBottom: 'var(--spacing-3)' }}>
+        <div style={{ background: 'var(--bg-base)', borderRadius: 'var(--radius-sm)', padding: '0.75rem 1rem', border: '1px solid var(--border)' }}>
+          <div style={{ height: 6, background: 'var(--border-2)', borderRadius: 3, overflow: 'hidden', marginBottom: '0.5rem' }}>
+            <div style={{
+              height: '100%',
+              width:  `${riskScore}%`,
+              background: `var(--${levelClass === 'safe' ? 'safe' : levelClass === 'warning' ? 'warn' : levelClass === 'high' ? 'high' : 'crit'})`,
+              borderRadius: 3,
+              transition: 'width 1s ease',
+            }} />
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <span className={`badge badge-${levelClass}`} style={{ fontSize: '0.65rem', padding: '0.2rem 0.5rem' }}>{riskLevel}</span>
+            <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.9rem', fontWeight: 700, color: 'var(--text-primary)' }}>{riskScore}</span>
+          </div>
         </div>
-      ))}
+      </div>
 
-      <div style={{ padding: '1.5rem 1rem 0.5rem', marginTop: 'auto' }}>
-        <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)', textAlign: 'center' }}>
-          SafetyAI v1.0 • AI-Powered
+      <div className="section-title">Zone Status</div>
+      {/* Zone list */}
+      <div style={{ flex: 1, overflowY: 'auto' }}>
+        {Object.entries(state.zoneBreakdown).map(([zone, info]) => (
+          <div key={zone} style={{
+            display: 'flex', alignItems: 'center', gap: '0.5rem',
+            padding: '0.3rem var(--spacing-3)', fontSize: '0.8rem',
+          }}>
+            <span style={{ width: 8, height: 8, borderRadius: '50%', background: info.color, flexShrink: 0 }} />
+            <span style={{ color: 'var(--text-secondary)', flex: 1, fontWeight: 500 }}>{zone}</span>
+            <span style={{ fontFamily: 'var(--font-mono)', color: info.color, fontWeight: 700 }}>{info.risk_score}</span>
+          </div>
+        ))}
+      </div>
+
+      <div style={{ padding: 'var(--spacing-3)', marginTop: 'auto', borderTop: '1px solid var(--border)' }}>
+        <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', textAlign: 'center', fontWeight: 500 }}>
+          SafetyAI Enterprise v2.0
         </div>
       </div>
     </nav>

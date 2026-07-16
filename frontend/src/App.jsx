@@ -19,10 +19,15 @@ function AppContent() {
 
   return (
     <div className="app-layout">
-      <TopBar />
-      <Sidebar />
-      <main className="main-content">
-        <Routes>
+      <div className="sidebar-wrapper">
+        <Sidebar />
+      </div>
+      <div className="main-wrapper">
+        <div className="topbar-wrapper">
+          <TopBar />
+        </div>
+        <main className="main-content fade-in">
+          <Routes>
           <Route path="/" element={<Dashboard />} />
           <Route path="/alerts" element={<Alerts />} />
           <Route path="/cctv" element={<PPEDetectionFeed />} />
@@ -30,7 +35,8 @@ function AppContent() {
           <Route path="/history" element={<HistoricalTrends />} />
           <Route path="/permits" element={<WorkPermits />} />
         </Routes>
-      </main>
+        </main>
+      </div>
     </div>
   )
 }
